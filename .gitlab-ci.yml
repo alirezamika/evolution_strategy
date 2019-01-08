@@ -1,0 +1,92 @@
+#image: pypy:latest
+image: python:latest
+
+stages:
+  - dependencies
+  - build
+  - test
+  - tooling
+
+variables:
+  GIT_DEPTH: "1"
+  PYTHONUSERBASE: "${CI_PROJECT_DIR}/python_user_packages"
+
+dependencies:
+  tags:
+    - shared
+  stage: dependencies
+  before_script:
+    - export EXECUTABLE_DEPENDENCIES_DIR=${PYTHONUSERBASE}/bin
+    - export PATH="$PATH:$EXECUTABLE_DEPENDENCIES_DIR" # don't move into `variables` any of them, it is unordered
+  script:
+    - pip3 install --user --upgrade --pre setuptools setuptools_scm
+    - pip3 install --user --upgrade --pre git+https://github.com/pypa/pip.git git+https://github.com/pypa/wheel.git
+    - pip3 install --user --upgrade --pre coverage git+https://github.com/coveralls-clients/coveralls-python.git@eba54e4d19e40e3907e5fd516f68e8b4dc9e5a31 git+https://github.com/codecov/codecov-python.git@0743daa83647f12ff31b84d07113d2c24c27b924
+    - pip3 install --upgrade --user --pre scikit-learn numpy scipy
+
+  cache:
+    key: deps
+    paths:
+      - $PYTHONUSERBASE
+
+build:
+  tags:
+    - shared
+  stage: build
+
+  before_script:
+    - export EXECUTABLE_DEPENDENCIES_DIR=${PYTHONUSERBASE}/bin
+    - export PATH="$PATH:$EXECUTABLE_DEPENDENCIES_DIR" # don't move into `variables` any of them, it is unordered
+
+  script:
+    - python3 setup.py bdist_wheel
+    - mv ./dist/*.whl ./dist/evostra-0.CI-py3-none-any.whl
+    - pip3 install --user --upgrade --pre ./dist/evostra-0.CI-py3-none-any.whl
+    - coverage run --source=evostra ./tests/tests.py
+    - coverage report -m
+    - coveralls || true
+    - codecov || true
+
+  cache:
+    key: deps
+    paths:
+      - $PYTHONUSERBASE
+
+  artifacts:
+    paths:
+      - dist
+
+sast:
+  stage: tooling
+  tags:
+    - shared
+  image: docker:latest
+  variables:
+    DOCKER_DRIVER: overlay2
+  allow_failure: true
+  services:
+    - docker:dind
+  script:
+    - docker run --env SAST_CONFIDENCE_LEVEL=5 --volume "$PWD:/code" --volume /var/run/docker.sock:/var/run/docker.sock "registry.gitlab.com/gitlab-org/security-products/sast:latest" /app/bin/run /code
+  artifacts:
+    paths:
+     - gl-sast-report.json
+
+pages:
+  stage: tooling
+  tags:
+    - shared
+  image: alpine:latest
+  allow_failure: true
+  before_script:
+    - apk update
+    - apk add doxygen
+    - apk add ttf-freefont graphviz
+  script:
+    - doxygen ./Doxyfile
+    - mv ./docs/html ./public
+  artifacts:
+    paths:
+      - public
+  only:
+    - master

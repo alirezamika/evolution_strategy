@@ -1,6 +1,6 @@
 from __future__ import print_function
 import numpy as np
-import multiprocessing as mp
+import ray.util.multiprocessing as mp
 
 np.random.seed(0)
 
@@ -10,9 +10,8 @@ def worker_process(arg):
     return get_reward_func(weights)
 
 
-class EvolutionStrategy(object):
-    def __init__(self, weights, get_reward_func, population_size=50, sigma=0.1, learning_rate=0.03, decay=0.999,
-                 num_threads=1):
+class DistributedEvolutionStrategy(object):
+    def __init__(self, weights, get_reward_func, population_size=50, sigma=0.1, learning_rate=0.03, decay=0.999):
 
         self.weights = weights
         self.get_reward = get_reward_func
@@ -20,7 +19,6 @@ class EvolutionStrategy(object):
         self.SIGMA = sigma
         self.learning_rate = learning_rate
         self.decay = decay
-        self.num_threads = mp.cpu_count() if num_threads == -1 else num_threads
 
     def _get_weights_try(self, w, p):
         weights_try = []
@@ -66,7 +64,7 @@ class EvolutionStrategy(object):
         self.learning_rate *= self.decay
 
     def run(self, iterations, print_step=10):
-        pool = mp.Pool(self.num_threads) if self.num_threads > 1 else None
+        pool = mp.Pool()
         for iteration in range(iterations):
 
             population = self._get_population()
